@@ -13,13 +13,23 @@ initialize_database()
 
 from services.user_service import register_user_db, authenticate_user_db
 
-# Configure page
+# Configure page - Hide default pages from menu
 st.set_page_config(
     page_title="Multi-Domain Intelligence Platform",
     page_icon="🔐",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# Hide the default Streamlit menu and pages
+hide_streamlit_style = """
+<style>
+    [data-testid="stSidebarNav"] {display: none;}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # Initialize session state
 if "logged_in" not in st.session_state:
@@ -30,6 +40,8 @@ if "user_id" not in st.session_state:
     st.session_state.user_id = None
 if "role" not in st.session_state:
     st.session_state.role = None
+if "current_page" not in st.session_state:
+    st.session_state.current_page = "home"
 
 
 # Logout function
@@ -38,6 +50,7 @@ def logout():
     st.session_state.username = None
     st.session_state.user_id = None
     st.session_state.role = None
+    st.session_state.current_page = "home"
     st.rerun()
 
 
@@ -81,6 +94,7 @@ if not st.session_state.logged_in:
                                 st.session_state.username = result["username"]
                                 st.session_state.user_id = result["id"]
                                 st.session_state.role = result["role"]
+                                st.session_state.current_page = "home"
                                 st.success(f"✅ Welcome back, {username}!")
                                 st.balloons()
                                 st.rerun()
@@ -170,7 +184,8 @@ else:
         """, unsafe_allow_html=True)
 
         if st.button("📊 Open Cybersecurity Dashboard", use_container_width=True, type="primary", key="cyber"):
-            st.switch_page("pages/2_🛡️_Cybersecurity.py")
+            st.session_state.current_page = "cybersecurity"
+            st.switch_page("pages/Cybersecurity.py")
 
     with col2:
         st.markdown("""
@@ -182,6 +197,7 @@ else:
         """, unsafe_allow_html=True)
 
         if st.button("📊 Open Data Science Dashboard", use_container_width=True, type="primary", key="data"):
+            st.session_state.current_page = "data_science"
             st.switch_page("pages/Data_Science.py")
 
     with col3:
@@ -194,6 +210,7 @@ else:
         """, unsafe_allow_html=True)
 
         if st.button("📊 Open IT Operations Dashboard", use_container_width=True, type="primary", key="it"):
+            st.session_state.current_page = "it_operations"
             st.switch_page("pages/IT_Operations.py")
 
     st.markdown("---")

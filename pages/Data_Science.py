@@ -10,8 +10,19 @@ app_path = Path(__file__).parent.parent / "app"
 sys.path.insert(0, str(app_path))
 
 from data import datasets
+from services.ai_helper import get_data_insights, chat_with_ai
 
 st.set_page_config(page_title="Data Science Dashboard", page_icon="📊", layout="wide")
+
+# Hide default menu
+hide_streamlit_style = """
+<style>
+    [data-testid="stSidebarNav"] {display: none;}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # Check authentication
 if not st.session_state.get("logged_in", False):
@@ -20,14 +31,21 @@ if not st.session_state.get("logged_in", False):
     st.switch_page("app.py")
     st.stop()
 
+# Initialize chat history
+if "ds_chat_history" not in st.session_state:
+    st.session_state.ds_chat_history = []
+
 # Sidebar
 with st.sidebar:
     st.markdown(f"### 👤 {st.session_state.username}")
     st.markdown(f"**Role:** {st.session_state.role}")
     st.markdown("---")
     st.markdown("### Navigation")
-    if st.button("🏠 Back to Home", use_container_width=True):
+
+    if st.button("⬅️ Return to Home", use_container_width=True, type="secondary"):
+        st.session_state.current_page = "home"
         st.switch_page("app.py")
+
     if st.button("🚪 Logout", use_container_width=True, type="primary"):
         st.session_state.logged_in = False
         st.session_state.username = None
@@ -40,10 +58,10 @@ st.title("📊 Data Science Dashboard")
 st.markdown(f"**Dataset Management & Analytics** | User: {st.session_state.username}")
 st.markdown("---")
 
-# View selector
+# View selector with AI
 view_mode = st.radio(
     "Select View:",
-    ["📈 Dataset Analytics", "📝 Manage Datasets", "➕ Add New Dataset"],
+    ["📈 Dataset Analytics", "📝 Manage Datasets", "➕ Add New Dataset", "🤖 AI Data Assistant"],
     horizontal=True
 )
 
@@ -60,9 +78,111 @@ def load_datasets():
 df = load_datasets()
 
 # ===============================
+# AI DATA ASSISTANT VIEW
+# ===============================
+if view_mode == "🤖 AI Data Assistant":
+
+    st.subheader("🤖 AI-Powered Data Science Assistant")
+    st.info("💡 Ask about data analysis, visualizations, statistical concepts, or get dataset insights!")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown("### Chat with Data Science AI")
+
+        # Display chat history
+        chat_container = st.container()
+        with chat_container:
+            for msg in st.session_state.ds_chat_history:
+                if msg["role"] == "user":
+                    st.markdown(f"**🧑 You:** {msg['content']}")
+                else:
+                    st.markdown(f"**🤖 AI Assistant:** {msg['content']}")
+                st.markdown("---")
+
+        # Chat input
+        with st.form("ds_chat_form", clear_on_submit=True):
+            user_message = st.text_area("Your Question:",
+                                        placeholder="E.g., What's the best visualization for time series data?",
+                                        height=100)
+            col_send, col_clear = st.columns([1, 1])
+
+            with col_send:
+                send_button = st.form_submit_button("💬 Send Message", use_container_width=True, type="primary")
+            with col_clear:
+                clear_button = st.form_submit_button("🗑️ Clear Chat", use_container_width=True)
+
+            if send_button and user_message:
+                with st.spinner("🤔 AI is thinking..."):
+                    success, response = chat_with_ai(
+                        user_message,
+                        domain="data_science",
+                        conversation_history=st.session_state.ds_chat_history[-4:] if len(
+                            st.session_state.ds_chat_history) > 0 else None
+                    )
+
+                    if success:
+                        st.session_state.ds_chat_history.append({"role": "user", "content": user_message})
+                        st.session_state.ds_chat_history.append({"role": "assistant", "content": response})
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {response}")
+
+            if clear_button:
+                st.session_state.ds_chat_history = []
+                st.rerun()
+
+    with col2:
+        st.markdown("### Quick Actions")
+
+        # Analyze dataset
+        st.markdown("**📊 Get Dataset Insights**")
+        if not df.empty:
+            dataset_options = {f"{row['name']} ({row['rows']} rows)": row for _, row in df.iterrows()}
+            selected_dataset = st.selectbox("Select Dataset:", options=list(dataset_options.keys()))
+
+            if st.button("🔍 Get AI Insights", use_container_width=True):
+                dataset = dataset_options[selected_dataset]
+                dataset_info = f"Dataset: {dataset['name']}\nRows: {dataset['rows']}\nDescription: {dataset['description']}"
+
+                with st.spinner("Analyzing dataset..."):
+                    success, insights = get_data_insights(dataset_info)
+
+                    if success:
+                        st.session_state.ds_chat_history.append(
+                            {"role": "user", "content": f"Analyze dataset: {dataset['name']}"})
+                        st.session_state.ds_chat_history.append({"role": "assistant", "content": insights})
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {insights}")
+        else:
+            st.info("No datasets available for analysis")
+
+        st.markdown("---")
+
+        # Quick prompts
+        st.markdown("**💡 Quick Prompts**")
+        quick_prompts = [
+            "Explain linear regression simply",
+            "Best practices for data cleaning",
+            "How to handle missing data?",
+            "Difference between mean and median",
+            "What is feature engineering?"
+        ]
+
+        for prompt in quick_prompts:
+            if st.button(prompt, use_container_width=True, key=f"ds_quick_{prompt}"):
+                with st.spinner("Getting answer..."):
+                    success, response = chat_with_ai(prompt, domain="data_science")
+                    if success:
+                        st.session_state.ds_chat_history.append({"role": "user", "content": prompt})
+                        st.session_state.ds_chat_history.append({"role": "assistant", "content": response})
+                        st.rerun()
+
+# ===============================
 # ANALYTICS VIEW
 # ===============================
-if view_mode == "📈 Dataset Analytics":
+elif view_mode == "📈 Dataset Analytics":
 
     if df.empty:
         st.warning("⚠️ No datasets available. Add datasets to see analytics!")
@@ -102,7 +222,7 @@ if view_mode == "📈 Dataset Analytics":
         fig_bar.update_layout(height=500, showlegend=False)
         st.plotly_chart(fig_bar, use_container_width=True)
 
-        # Horizontal bar for better readability with many datasets
+        # Horizontal bar for better readability
         fig_h_bar = px.bar(
             df.sort_values('rows', ascending=True),
             y='name',
@@ -122,7 +242,7 @@ if view_mode == "📈 Dataset Analytics":
         col1, col2 = st.columns(2)
 
         with col1:
-            # Pie chart showing proportion of total rows
+            # Pie chart
             fig_pie = px.pie(
                 df,
                 values='rows',
@@ -134,7 +254,7 @@ if view_mode == "📈 Dataset Analytics":
             st.plotly_chart(fig_pie, use_container_width=True)
 
         with col2:
-            # Treemap visualization
+            # Treemap
             fig_tree = px.treemap(
                 df,
                 path=['name'],
@@ -145,7 +265,7 @@ if view_mode == "📈 Dataset Analytics":
             )
             st.plotly_chart(fig_tree, use_container_width=True)
 
-        # Statistics summary
+        # Statistics
         st.markdown("### Statistical Summary")
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -160,7 +280,6 @@ if view_mode == "📈 Dataset Analytics":
     with tab3:
         st.subheader("Detailed Dataset Information")
 
-        # Enhanced dataframe with formatting
         display_df = df.copy()
         display_df['rows'] = display_df['rows'].apply(lambda x: f"{x:,}")
 
@@ -177,21 +296,6 @@ if view_mode == "📈 Dataset Analytics":
             }
         )
 
-        # Summary table
-        st.markdown("### Quick Summary")
-        summary_data = {
-            'Metric': ['Total Datasets', 'Total Rows', 'Average Size', 'Largest Dataset', 'Smallest Dataset'],
-            'Value': [
-                len(df),
-                f"{df['rows'].sum():,}",
-                f"{df['rows'].mean():.0f}",
-                f"{df['rows'].max():,} ({df.loc[df['rows'].idxmax(), 'name']})",
-                f"{df['rows'].min():,} ({df.loc[df['rows'].idxmin(), 'name']})"
-            ]
-        }
-        summary_df = pd.DataFrame(summary_data)
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
 # ===============================
 # MANAGE DATASETS VIEW
 # ===============================
@@ -202,7 +306,6 @@ elif view_mode == "📝 Manage Datasets":
     if df.empty:
         st.info("📋 No datasets to manage. Add your first dataset using the 'Add New Dataset' view.")
     else:
-        # Search functionality
         search_term = st.text_input("🔍 Search datasets", placeholder="Search by name or description...")
 
         if search_term:
@@ -215,7 +318,6 @@ elif view_mode == "📝 Manage Datasets":
 
         st.markdown(f"**Showing {len(df_display)} datasets**")
 
-        # Display datasets
         for idx, row in df_display.iterrows():
             with st.expander(f"📁 **{row['name']}** ({row['rows']:,} rows)"):
                 col1, col2 = st.columns([3, 1])
@@ -236,7 +338,6 @@ elif view_mode == "📝 Manage Datasets":
                     if st.button("✏️ Edit", key=f"edit_ds_{row['id']}", use_container_width=True):
                         st.session_state[f"editing_ds_{row['id']}"] = True
 
-                # Edit form
                 if st.session_state.get(f"editing_ds_{row['id']}", False):
                     st.markdown("---")
                     st.markdown("**✏️ Edit Dataset**")
@@ -248,12 +349,7 @@ elif view_mode == "📝 Manage Datasets":
                         col_save, col_cancel = st.columns(2)
                         with col_save:
                             if st.form_submit_button("💾 Save", use_container_width=True):
-                                datasets.update_dataset(
-                                    row['id'],
-                                    name=new_name,
-                                    description=new_desc,
-                                    rows=new_rows
-                                )
+                                datasets.update_dataset(row['id'], name=new_name, description=new_desc, rows=new_rows)
                                 st.session_state[f"editing_ds_{row['id']}"] = False
                                 st.success("✅ Dataset updated!")
                                 st.cache_data.clear()
@@ -295,7 +391,7 @@ elif view_mode == "➕ Add New Dataset":
                 st.success(f"🆔 Dataset ID: {dataset_id}")
                 st.balloons()
                 st.cache_data.clear()
-                st.info("💡 Switch to 'Dataset Analytics' to see visualizations or 'Manage Datasets' to view details")
+                st.info("💡 Switch to 'Dataset Analytics' to see visualizations")
 
 st.markdown("---")
 st.markdown(

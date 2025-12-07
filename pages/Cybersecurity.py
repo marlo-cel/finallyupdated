@@ -11,8 +11,19 @@ app_path = Path(__file__).parent.parent / "app"
 sys.path.insert(0, str(app_path))
 
 from data import incidents
+from services.ai_helper import get_security_advice, chat_with_ai
 
 st.set_page_config(page_title="Cybersecurity Dashboard", page_icon="🛡️", layout="wide")
+
+# Hide default menu
+hide_streamlit_style = """
+<style>
+    [data-testid="stSidebarNav"] {display: none;}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # Check authentication
 if not st.session_state.get("logged_in", False):
@@ -21,14 +32,22 @@ if not st.session_state.get("logged_in", False):
     st.switch_page("app.py")
     st.stop()
 
+# Initialize chat history in session state
+if "cyber_chat_history" not in st.session_state:
+    st.session_state.cyber_chat_history = []
+
 # Sidebar
 with st.sidebar:
     st.markdown(f"### 👤 {st.session_state.username}")
     st.markdown(f"**Role:** {st.session_state.role}")
     st.markdown("---")
     st.markdown("### Navigation")
-    if st.button("🏠 Back to Home", use_container_width=True):
+
+    # Return to Home button
+    if st.button("⬅️ Return to Home", use_container_width=True, type="secondary"):
+        st.session_state.current_page = "home"
         st.switch_page("app.py")
+
     if st.button("🚪 Logout", use_container_width=True, type="primary"):
         st.session_state.logged_in = False
         st.session_state.username = None
@@ -49,10 +68,10 @@ st.title("🛡️ Cybersecurity Dashboard")
 st.markdown(f"**Incident Management & Analytics** | Logged in as: {st.session_state.username}")
 st.markdown("---")
 
-# View selector
+# View selector with AI Assistant
 view_mode = st.radio(
     "Select View:",
-    ["📈 Analytics & Visualizations", "📝 Manage Incidents", "➕ Create New Incident"],
+    ["📈 Analytics & Visualizations", "📝 Manage Incidents", "➕ Create New Incident", "🤖 AI Security Assistant"],
     horizontal=True
 )
 
@@ -78,9 +97,118 @@ else:
     df_filtered = df
 
 # ===============================
+# AI SECURITY ASSISTANT VIEW
+# ===============================
+if view_mode == "🤖 AI Security Assistant":
+
+    st.subheader("🤖 AI-Powered Security Assistant")
+    st.info("💡 Ask questions about cybersecurity, get incident analysis, or request security advice!")
+
+    # Create two columns
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown("### Chat with Security AI")
+
+        # Chat interface
+        chat_container = st.container()
+
+        with chat_container:
+            # Display chat history
+            for i, msg in enumerate(st.session_state.cyber_chat_history):
+                if msg["role"] == "user":
+                    st.markdown(f"**🧑 You:** {msg['content']}")
+                else:
+                    st.markdown(f"**🤖 AI Assistant:** {msg['content']}")
+                st.markdown("---")
+
+        # Chat input
+        with st.form("chat_form", clear_on_submit=True):
+            user_message = st.text_area("Your Question:",
+                                        placeholder="E.g., What are the best practices for handling a data breach?",
+                                        height=100)
+            col_send, col_clear = st.columns([1, 1])
+
+            with col_send:
+                send_button = st.form_submit_button("💬 Send Message", use_container_width=True, type="primary")
+            with col_clear:
+                clear_button = st.form_submit_button("🗑️ Clear Chat", use_container_width=True)
+
+            if send_button and user_message:
+                with st.spinner("🤔 AI is thinking..."):
+                    # Get AI response
+                    success, response = chat_with_ai(
+                        user_message,
+                        domain="cybersecurity",
+                        conversation_history=st.session_state.cyber_chat_history[-4:] if len(
+                            st.session_state.cyber_chat_history) > 0 else None
+                    )
+
+                    if success:
+                        # Add to history
+                        st.session_state.cyber_chat_history.append({"role": "user", "content": user_message})
+                        st.session_state.cyber_chat_history.append({"role": "assistant", "content": response})
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {response}")
+
+            if clear_button:
+                st.session_state.cyber_chat_history = []
+                st.rerun()
+
+    with col2:
+        st.markdown("### Quick Actions")
+
+        # Analyze recent incidents
+        st.markdown("**📊 Analyze Recent Incident**")
+        if not df.empty:
+            recent_incidents = df.sort_values('date_reported', ascending=False).head(5)
+            incident_options = {f"{row['title']} ({row['severity']})": row for _, row in recent_incidents.iterrows()}
+
+            selected_incident = st.selectbox("Select Incident:", options=list(incident_options.keys()))
+
+            if st.button("🔍 Get AI Analysis", use_container_width=True):
+                incident = incident_options[selected_incident]
+                incident_desc = f"Title: {incident['title']}\nSeverity: {incident['severity']}\nDescription: {incident['description']}"
+
+                with st.spinner("Analyzing incident..."):
+                    success, advice = get_security_advice(incident_desc)
+
+                    if success:
+                        st.session_state.cyber_chat_history.append(
+                            {"role": "user", "content": f"Analyze this incident: {incident['title']}"})
+                        st.session_state.cyber_chat_history.append({"role": "assistant", "content": advice})
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {advice}")
+        else:
+            st.info("No incidents available for analysis")
+
+        st.markdown("---")
+
+        # Quick prompts
+        st.markdown("**💡 Quick Prompts**")
+        quick_prompts = [
+            "What are common types of cyber attacks?",
+            "How to respond to a ransomware attack?",
+            "Best practices for incident response",
+            "Explain threat intelligence",
+            "How to secure a network?"
+        ]
+
+        for prompt in quick_prompts:
+            if st.button(prompt, use_container_width=True, key=f"quick_{prompt}"):
+                with st.spinner("Getting answer..."):
+                    success, response = chat_with_ai(prompt, domain="cybersecurity")
+                    if success:
+                        st.session_state.cyber_chat_history.append({"role": "user", "content": prompt})
+                        st.session_state.cyber_chat_history.append({"role": "assistant", "content": response})
+                        st.rerun()
+
+# ===============================
 # ANALYTICS VIEW
 # ===============================
-if view_mode == "📈 Analytics & Visualizations":
+elif view_mode == "📈 Analytics & Visualizations":
 
     if df_filtered.empty:
         st.warning("⚠️ No incidents found. Create some incidents to see analytics!")
