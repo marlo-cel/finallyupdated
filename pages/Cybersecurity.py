@@ -11,6 +11,7 @@ app_path = Path(__file__).parent.parent / "app"
 sys.path.insert(0, str(app_path))
 
 from data import incidents
+from services.ai_helper import get_security_advice, chat_with_ai
 
 st.set_page_config(page_title="Cybersecurity Dashboard", page_icon="🛡️", layout="wide")
 
@@ -20,6 +21,10 @@ if not st.session_state.get("logged_in", False):
     st.info("Redirecting to login page...")
     st.switch_page("app.py")
     st.stop()
+
+# Initialize chat history for cybersecurity
+if "cyber_chat_history" not in st.session_state:
+    st.session_state.cyber_chat_history = []
 
 # Sidebar
 with st.sidebar:
@@ -49,10 +54,10 @@ st.title("🛡️ Cybersecurity Dashboard")
 st.markdown(f"**Incident Management & Analytics** | Logged in as: {st.session_state.username}")
 st.markdown("---")
 
-# View selector
+# View selector - NOW WITH AI ASSISTANT
 view_mode = st.radio(
     "Select View:",
-    ["📈 Analytics & Visualizations", "📝 Manage Incidents", "➕ Create New Incident"],
+    ["📈 Analytics & Visualizations", "📝 Manage Incidents", "➕ Create New Incident", "🤖 AI Security Assistant"],
     horizontal=True
 )
 
@@ -79,9 +84,128 @@ else:
     df_filtered = df
 
 # ===============================
+# AI SECURITY ASSISTANT VIEW (NEW!)
+# ===============================
+if view_mode == "🤖 AI Security Assistant":
+
+    st.subheader("🤖 AI-Powered Cybersecurity Assistant")
+    st.info("💡 Get expert advice on security incidents, threat analysis, best practices, and mitigation strategies!")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown("### Chat with Security AI")
+
+        # Display chat history
+        chat_container = st.container()
+        with chat_container:
+            for msg in st.session_state.cyber_chat_history:
+                if msg["role"] == "user":
+                    st.markdown(f"**🧑 You:** {msg['content']}")
+                else:
+                    st.markdown(f"**🤖 Security AI:** {msg['content']}")
+                st.markdown("---")
+
+        # Chat input
+        with st.form("cyber_chat_form", clear_on_submit=True):
+            user_message = st.text_area("Your Security Question:",
+                                        placeholder="E.g., How do I respond to a phishing attack?",
+                                        height=100)
+            col_send, col_clear = st.columns([1, 1])
+
+            with col_send:
+                send_button = st.form_submit_button("💬 Send Message", use_container_width=True, type="primary")
+            with col_clear:
+                clear_button = st.form_submit_button("🗑️ Clear Chat", use_container_width=True)
+
+            if send_button and user_message:
+                with st.spinner("🤔 AI is analyzing..."):
+                    success, response = chat_with_ai(
+                        user_message,
+                        domain="cybersecurity",
+                        conversation_history=st.session_state.cyber_chat_history[-4:] if len(
+                            st.session_state.cyber_chat_history) > 0 else None
+                    )
+
+                    if success:
+                        st.session_state.cyber_chat_history.append({"role": "user", "content": user_message})
+                        st.session_state.cyber_chat_history.append({"role": "assistant", "content": response})
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {response}")
+
+            if clear_button:
+                st.session_state.cyber_chat_history = []
+                st.rerun()
+
+    with col2:
+        st.markdown("### Quick Actions")
+
+        # Analyze specific incident
+        st.markdown("**🔍 Get Incident Analysis**")
+        if not df.empty:
+            # Get critical and high severity incidents for quick analysis
+            critical_incidents = df[df['severity'].isin(['Critical', 'High'])]
+            if not critical_incidents.empty:
+                incident_options = {f"{row['title']} ({row['severity']})": row for _, row in
+                                    critical_incidents.iterrows()}
+                selected_incident = st.selectbox("Select Incident:", options=list(incident_options.keys()))
+
+                if st.button("🔍 Get Security Advice", use_container_width=True):
+                    incident = incident_options[selected_incident]
+                    incident_info = f"{incident['title']}\n\nDescription: {incident['description']}\nSeverity: {incident['severity']}"
+
+                    with st.spinner("Analyzing incident..."):
+                        success, advice = get_security_advice(incident_info)
+
+                        if success:
+                            st.session_state.cyber_chat_history.append(
+                                {"role": "user", "content": f"Analyze incident: {incident['title']}"})
+                            st.session_state.cyber_chat_history.append({"role": "assistant", "content": advice})
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {advice}")
+            else:
+                st.info("No Critical/High severity incidents for analysis")
+        else:
+            st.info("No incidents available for analysis")
+
+        st.markdown("---")
+
+        # Quick security prompts
+        st.markdown("**💡 Quick Security Topics**")
+        quick_prompts = [
+            "Best practices for phishing prevention",
+            "How to respond to a data breach?",
+            "What is a DDoS attack?",
+            "Malware detection techniques",
+            "Security incident response steps"
+        ]
+
+        for prompt in quick_prompts:
+            if st.button(prompt, use_container_width=True, key=f"cyber_quick_{prompt}"):
+                with st.spinner("Getting security advice..."):
+                    success, response = chat_with_ai(prompt, domain="cybersecurity")
+                    if success:
+                        st.session_state.cyber_chat_history.append({"role": "user", "content": prompt})
+                        st.session_state.cyber_chat_history.append({"role": "assistant", "content": response})
+                        st.rerun()
+
+        st.markdown("---")
+
+        # Security statistics for context
+        st.markdown("**📊 Current Security Status**")
+        if not df.empty:
+            st.metric("Total Incidents", len(df))
+            st.metric("🔴 Critical", len(df[df['severity'] == 'Critical']))
+            st.metric("🟠 High Priority", len(df[df['severity'] == 'High']))
+            recent_count = len(df[df['date_reported'] >= (datetime.now() - timedelta(days=7))])
+            st.metric("📅 Last 7 Days", recent_count)
+
+# ===============================
 # ANALYTICS VIEW
 # ===============================
-if view_mode == "📈 Analytics & Visualizations":
+elif view_mode == "📈 Analytics & Visualizations":
 
     if df_filtered.empty:
         st.warning("⚠️ No incidents found. Create some incidents to see analytics!")
@@ -260,7 +384,8 @@ if view_mode == "📈 Analytics & Visualizations":
                 st.metric("🔝 Peak Count", 0)
         with col3:
             if len(monthly_counts) > 1:
-                trend = "📈 Increasing" if monthly_counts['count'].iloc[-1] > monthly_counts['count'].iloc[0] else "📉 Decreasing"
+                trend = "📈 Increasing" if monthly_counts['count'].iloc[-1] > monthly_counts['count'].iloc[
+                    0] else "📉 Decreasing"
             else:
                 trend = "➡️ Stable"
             st.metric("Trend Direction", trend)
@@ -304,7 +429,7 @@ elif view_mode == "📝 Manage Incidents":
             df_display = df_filtered[
                 df_filtered['title'].str.contains(search_term, case=False, na=False) |
                 df_filtered['description'].str.contains(search_term, case=False, na=False)
-            ]
+                ]
         else:
             df_display = df_filtered
 
