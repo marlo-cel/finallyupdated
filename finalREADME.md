@@ -6,7 +6,7 @@
 
 ---
 
-## 🎯 Project Overview
+## Project Overview
 
 A comprehensive web-based intelligence platform integrating three critical operational domains:
 
